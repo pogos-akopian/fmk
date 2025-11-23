@@ -1,0 +1,241 @@
+import React, { useState, useEffect, useRef } from 'react';
+
+export default function ChatScreen({ t, theme, initData, chat, goBack, webApp }) {
+  const [messages, setMessages] = useState([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [loading, setLoading] = useState(true);
+  const messagesEndRef = useRef(null);
+  const intervalRef = useRef(null);
+
+  useEffect(() => {
+    loadMessages();
+    
+    // Poll for new messages every 3 seconds
+    intervalRef.current = setInterval(loadMessages, 3000);
+    
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, [chat]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const loadMessages = async () => {
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/chat/${chat.id}/messages`, {
+        headers: {
+          'X-Telegram-Init-Data': initData
+        }
+      });
+      const data = await response.json();
+      setMessages(data.messages || []);
+      setLoading(false);
+    } catch (error) {
+      console.error('Load messages error:', error);
+      setLoading(false);
+    }
+  };
+
+  const sendMessage = async () => {
+    if (!newMessage.trim()) return;
+
+    if (webApp) {
+      webApp.HapticFeedback.impactOccurred('light');
+    }
+
+    const messageText = newMessage;
+    setNewMessage('');
+
+    try {
+      await fetch(`${import.meta.env.VITE_API_URL}/api/chat/${chat.id}/message`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Telegram-Init-Data': initData
+        },
+        body: JSON.stringify({
+          type: 'text',
+          content: messageText,
+          blurred: false
+        })
+      });
+      
+      loadMessages();
+    } catch (error) {
+      console.error('Send message error:', error);
+      setNewMessage(messageText);
+      if (webApp) {
+        webApp.showAlert('Ошибка отправки сообщения');
+      }
+    }
+  };
+
+  const toggleBlur = async (messageId) => {
+    if (webApp) {
+      webApp.HapticFeedback.impactOccurred('light');
+    }
+
+    try {
+      await fetch(`${import.meta.env.VITE_API_URL}/api/chat/${chat.id}/toggle-blur/${messageId}`, {
+        method: 'POST',
+        headers: {
+          'X-Telegram-Init-Data': initData
+        }
+      });
+      
+      loadMessages();
+    } catch (error) {
+      console.error('Toggle blur error:', error);
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-[calc(100vh-80px)]">
+      {/* Header */}
+      <div className={`p-4 border-b ${theme === 'dark' ? 'border-zinc-800 bg-dark-bg' : 'border-gray-200 bg-light-bg'} flex items-center sticky top-16 z-40 backdrop-blur-md`}>
+        <button 
+          onClick={() => {
+            if (webApp) {
+              webApp.HapticFeedback.impactOccurred('light');
+            }
+            goBack();
+          }} 
+          className="mr-3 text-3xl hover:scale-110 transition"
+        >
+          ←
+        </button>
+        <div className="flex items-center">
+          <div className="w-12 h-12 rounded-full bg-accent/20 mr-3 flex items-center justify-center overflow-hidden">
+            {chat.partnerPhotos && chat.partnerPhotos[0] ? (
+              <img src={chat.partnerPhotos[0]} alt="" className="w-full h-full object-cover photo-blur" />
+            ) : (
+              <span className="text-xl">👤</span>
+            )}
+          </div>
+          <div>
+            <p className="font-semibold text-lg">{chat.partnerName}</p>
+            <p className="text-xs opacity-70">{chat.type === 'instant' ? '💍' : '💬'}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        {loading ? (
+          <div className="flex justify-center py-8">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-accent"></div>
+          </div>
+        ) : messages.length === 0 ? (
+          <div className="text-center py-16">
+            <div className="text-6xl mb-4">👋</div>
+            <p className="opacity-70">Начните разговор!</p>
+          </div>
+        ) : (
+          messages.map(msg => {
+            const isMyMessage = msg.sender_id !== chat.partnerId;
+            
+            return (
+              <div
+                key={msg.id}
+                className={`flex ${isMyMessage ? 'justify-end' : 'justify-start'}`}
+              >
+                <div className={`max-w-[75%]`}>
+                  {msg.type === 'text' && (
+                    <div className={`px-4 py-3 rounded-2xl ${
+                      isMyMessage 
+                        ? 'bg-accent text-white rounded-br-sm'
+                        : theme === 'dark' ? 'bg-zinc-800 rounded-bl-sm' : 'bg-gray-200 rounded-bl-sm'
+                    }`}>
+                      {msg.content}
+                    </div>
+                  )}
+                  
+                  {msg.type === 'photo' && (
+                    <div className="relative">
+                      <img 
+                        src={msg.content} 
+                        alt="Photo" 
+                        className={`rounded-2xl max-w-full ${msg.blurred === 1 ? 'photo-blur' : ''}`}
+                        onClick={() => toggleBlur(msg.id)}
+                      />
+                      {msg.blurred === 1 && (
+                        <button 
+                          onClick={() => toggleBlur(msg.id)}
+                          className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-2xl text-white font-semibold"
+                        >
+                          {t('show_photo')}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  
+                  {msg.type === 'audio' && (
+                    <div className={`px-4 py-3 rounded-2xl ${
+                      isMyMessage 
+                        ? 'bg-accent text-white'
+                        : theme === 'dark' ? 'bg-zinc-800' : 'bg-gray-200'
+                    }`}>
+                      <audio controls className="max-w-full">
+                        <source src={msg.content} />
+                      </audio>
+                    </div>
+                  )}
+                  
+                  {msg.type === 'gift' && (
+                    <div className={`px-4 py-3 rounded-2xl text-center ${
+                      isMyMessage 
+                        ? 'bg-accent text-white'
+                        : theme === 'dark' ? 'bg-zinc-800' : 'bg-gray-200'
+                    }`}>
+                      <div className="text-4xl mb-2">🎁</div>
+                      <p className="text-sm">{t('gift')}</p>
+                    </div>
+                  )}
+                  
+                  <p className="text-xs opacity-50 mt-1 px-2">
+                    {new Date(msg.timestamp * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+              </div>
+            );
+          })
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Input */}
+      <div className={`p-4 border-t ${theme === 'dark' ? 'border-zinc-800 bg-dark-bg' : 'border-gray-200 bg-light-bg'} sticky bottom-0 backdrop-blur-md`}>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={newMessage}
+            onChange={(e) => setNewMessage(e.target.value)}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+              }
+            }}
+            placeholder={t('send_message')}
+            className={`flex-1 px-4 py-3 rounded-full ${
+              theme === 'dark' ? 'bg-zinc-800' : 'bg-gray-100'
+            } outline-none focus:ring-2 focus:ring-accent`}
+          />
+          <button
+            onClick={sendMessage}
+            disabled={!newMessage.trim()}
+            className={`px-6 py-3 bg-accent text-white rounded-full font-semibold hover:bg-accent/90 active:scale-95 transition ${
+              !newMessage.trim() ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
+          >
+            {t('send')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

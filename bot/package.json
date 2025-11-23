@@ -1,0 +1,9 @@
+{
+  "name": "fmk-dating-bot",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node bot.js",
+    "dev": "nodemon bot.js"
+  }
+}
